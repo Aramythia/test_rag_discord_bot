@@ -50,7 +50,8 @@ async def ask(ctx: discord.ApplicationContext, question: str):
 
 @bot.slash_command(name="history", description="Get the message history")
 async def history(ctx: discord.ApplicationContext, limit: int = 5):
-    user_messages = ctx.bot.messages.tail(limit)
+    rag: RAG = ctx.bot.rag
+    user_messages = rag.messages.tail(limit)
     if user_messages.empty:
         await ctx.respond("No message history found.")
     else:
@@ -60,11 +61,12 @@ async def history(ctx: discord.ApplicationContext, limit: int = 5):
 
 @bot.slash_command(name="chunks", description="Get the message chunks")
 async def chunks(ctx: discord.ApplicationContext):
-    if ctx.bot.messages.empty:
+    rag: RAG = ctx.bot.rag
+    if rag.messages.empty:
         await ctx.respond("No messages to chunk.")
         return
 
-    message_chunks = ctx.bot.chunk_messages(ctx.bot.messages)
+    message_chunks = rag.chunk_messages(rag.messages)
     chunk_texts = ["\n".join(chunk) for chunk in message_chunks]
     response_text = "\n\n---\n\n".join(chunk_texts)
     print(response_text)
