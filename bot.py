@@ -21,13 +21,8 @@ class RagBot(discord.Bot):
         )
 
     @staticmethod
-    def prepare_message(message: discord.Message) -> str:
-        data = {
-            "created_at": str(message.created_at),
-            "author": str(message.author),
-            "content": message.content
-        }
-        return json.dumps(data)
+    def prepare_message(message: pd.Series) -> str:
+        return f"MESSAGE[({message['timestamp']}, {message['user']}): {message['message']}]"
 
     def create_embeddings(self, text: str, model: str = "text-embedding-ada-002"):
         # Create embeddings for each document chunk
@@ -36,10 +31,16 @@ class RagBot(discord.Bot):
     
     def chunk_messages(self, messages: pd.DataFrame, chunk_size: int = 10, overlap: int = 2):
         chunks = []
-        for i in range(0, len(messages), chunk_size - overlap):
-            chunk = messages.iloc[i:i + chunk_size]
-            if not chunk.empty:
-                chunks.append(" ".join(chunk["message"].tolist()))
+        n = len(messages)
+        start = 0
+        while start < n:
+            end = min(start + chunk_size, n)
+            window = messages.iloc[start:end]
+            chunk = [self.prepare_message(row) for _, row in window.iterrows()]
+            chunks.append(chunk)
+            if end == n:
+                break
+            start += overlap
         return chunks
 
     async def on_ready(self):
@@ -109,14 +110,26 @@ async def ask(ctx: discord.ApplicationContext, question: str):
 
 
 @bot.slash_command(name="history", description="Get the message history")
-async def history(ctx: discord.ApplicationContext):
-    limit = 5
-    user_messages = ctx.bot.messages[ctx.bot.messages["user"] == ctx.author.name].tail(limit)
+async def history(ctx: discord.ApplicationContext, limit: int = 5):
+    user_messages = ctx.bot.messages.tail(limit)
     if user_messages.empty:
         await ctx.respond("No message history found.")
     else:
         history_text = "\n".join([f"{row['timestamp']}: {row['message']}" for _, row in user_messages.iterrows()])
         await ctx.respond(f"Your last {limit} messages:\n{history_text}")
+
+
+@bot.slash_command(name="chunks", description="Get the message chunks")
+async def chunks(ctx: discord.ApplicationContext):
+    if ctx.bot.messages.empty:
+        await ctx.respond("No messages to chunk.")
+        return
+
+    message_chunks = ctx.bot.chunk_messages(ctx.bot.messages)
+    chunk_texts = ["\n".join(chunk) for chunk in message_chunks]
+    response_text = "\n\n---\n\n".join(chunk_texts)
+    print(response_text)
+    await ctx.respond(f"Message chunks:\n{message_chunks[0]}")
 
 
 bot.run(os.getenv('TOKEN')) # run the bot with the token
