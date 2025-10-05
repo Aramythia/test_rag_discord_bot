@@ -7,12 +7,15 @@ import pandas as pd
 from sklearn.neighbors import NearestNeighbors
 from openai import AzureOpenAI
 
+from utils.rag import RAG
+
 load_dotenv() # load all the variables from the env file
 
 
 class RagBot(discord.Bot):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self.rag = RAG()
         self.messages: pd.DataFrame = pd.DataFrame([{"user": "", "message": "", "timestamp": "", "embedding": None}])
         self.client = AzureOpenAI(
             api_key=os.getenv('AZURE_OPENAI_API_KEY'),
@@ -51,18 +54,11 @@ class RagBot(discord.Bot):
         if message.author == self.user:
             return
         if "seehistory" in message.content:
-            print(self.messages)
+            print(self.rag.messages)
             return
         if "embeddings" in message.content:
-            mask = self.messages["embedding"].isnull()
-            self.messages.loc[mask, "embedding"] = self.messages.loc[mask, "message"].apply(self.create_embeddings)
-            print(self.messages)
-            return
-        self.messages = pd.concat([
-            self.messages, 
-            pd.DataFrame([
-                {"user": message.author.name, "message": message.content, "timestamp": message.created_at, "embedding": None}
-            ])], ignore_index=True)
+            self.rag.embed_chunks()
+        self.rag.add_message(message)
 
 
 bot = RagBot(intents=discord.Intents.all(), debug_guilds=[331126066850824192])
@@ -71,6 +67,14 @@ bot = RagBot(intents=discord.Intents.all(), debug_guilds=[331126066850824192])
 @bot.slash_command(name="hello", description="Say hello to the bot")
 async def hello(ctx: discord.ApplicationContext):
     await ctx.respond("Hey!")
+
+
+@bot.slash_command(name="query", description="Query the RAG system")
+async def query(ctx: discord.ApplicationContext, question: str):
+    rag: RAG = ctx.bot.rag
+    response = rag.query(question)
+    print(response.choices[0].message.content)
+    await ctx.respond(f"Question: {question}\nAnswer: {response.choices[0].message.content}")
 
 
 @bot.slash_command(name="ask", description="Ask a question to the bot")
