@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 
 import pandas as pd
+from sklearn.neighbors import NearestNeighbors
 from openai import AzureOpenAI
 
 load_dotenv() # load all the variables from the env file
@@ -37,6 +38,7 @@ class RagBot(discord.Bot):
             mask = self.messages["embedding"].isnull()
             self.messages.loc[mask, "embedding"] = self.messages.loc[mask, "message"].apply(self.create_embeddings)
             print(self.messages)
+            return
         self.messages = pd.concat([
             self.messages, 
             pd.DataFrame([
@@ -46,6 +48,45 @@ class RagBot(discord.Bot):
     @discord.slash_command(name="test", description="Say hello!")
     async def test(self, ctx: discord.ApplicationContext):
         await ctx.respond("Hello from RagBot!")
+
+    @discord.slash_command(name="ask", description="Ask a question to the bot")
+    async def ask(self, ctx: discord.ApplicationContext, question: str):
+        # Load vector database
+        loaded_messages = self.messages.dropna(subset=["embedding"])
+        embeddings = loaded_messages["embedding"].dropna().tolist()
+        nbrs = NearestNeighbors(n_neighbors=5).fit(embeddings)
+        distances, indices = nbrs.kneighbors(embeddings)
+        loaded_messages['indices'] = indices.tolist()
+        loaded_messages['distances'] = distances.tolist()
+
+        # Embed the question
+        query_vector = self.create_embeddings(question)
+        distances, indices = nbrs.kneighbors([query_vector])
+        context = "Context:\n"
+        for index in indices[0]:
+            context += f"- {loaded_messages.iloc[index]['message']}\n"
+
+        # Create the message
+        prompt = [
+            {'role': 'system', 'content': 'You are a helpful assistant that uses the provided context to answer the question. If you cannot answer a question with complete certainty, say "I do not know".'},
+            {'role': 'system', 'content': context},
+            {'role': 'user', 'content': question}
+        ]
+        print(prompt)
+
+        response = self.client.chat.completions.create(
+            model=os.getenv('AZURE_OPENAI_DEPLOYMENT'),
+            messages=prompt,
+            max_tokens=1000,
+            temperature=0.7,
+        )
+        print("Response:", response.choices[0].message.content)
+
+        await ctx.respond(response.choices[0].message.content)
+
+    @discord.slash_command(name="newcom", description="Say hello to the bot")
+    async def newcom(self, ctx: discord.ApplicationContext):
+        await ctx.respond("Welcome to the server!")
 
 bot = RagBot(intents=discord.Intents.all())
 
