@@ -14,13 +14,13 @@ class RagBot(discord.Bot):
         self.messages: pd.DataFrame = pd.DataFrame([{"user": "", "message": "", "timestamp": "", "embedding": None}])
         self.client = AzureOpenAI(
             api_key=os.getenv('AZURE_OPENAI_API_KEY'),
-            base_url=os.getenv('AZURE_OPENAI_ENDPOINT'),
-            api_version=os.getenv('AZURE_OPENAI_API_VERSION')
+            azure_endpoint=os.getenv('AZURE_OPENAI_ENDPOINT'),
+            api_version="2023-07-01-preview"
         )
 
     def create_embeddings(self, text: str, model: str = "text-embedding-ada-002"):
         # Create embeddings for each document chunk
-        embeddings = self.client.embeddings.create(input = text, model=model).data[0].embedding
+        embeddings = self.client.embeddings.create(input=text, model=model).data[0].embedding
         return embeddings
 
     async def on_ready(self):
@@ -34,8 +34,9 @@ class RagBot(discord.Bot):
             print(self.messages)
             return
         if "embeddings" in message.content:
-            print(self.client)
-            return
+            mask = self.messages["embedding"].isnull()
+            self.messages.loc[mask, "embedding"] = self.messages.loc[mask, "message"].apply(self.create_embeddings)
+            print(self.messages)
         self.messages = pd.concat([
             self.messages, 
             pd.DataFrame([
@@ -46,12 +47,15 @@ class RagBot(discord.Bot):
     async def test(self, ctx: discord.ApplicationContext):
         await ctx.respond("Hello from RagBot!")
 
-
 bot = RagBot(intents=discord.Intents.all())
 
 @bot.slash_command(name="hello", description="Say hello to the bot")
 async def hello(ctx: discord.ApplicationContext):
     await ctx.respond("Hey!")
+
+@bot.slash_command(name="hi", description="Say hi to the bot")
+async def hi(ctx: discord.ApplicationContext):
+    await ctx.respond("Hi!")
 
 @bot.slash_command(name="history", description="Get the message history")
 async def history(ctx: discord.ApplicationContext):
