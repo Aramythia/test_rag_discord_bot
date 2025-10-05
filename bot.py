@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 
 import pandas as pd
+from openai import AzureOpenAI
 
 load_dotenv() # load all the variables from the env file
 
@@ -10,7 +11,17 @@ load_dotenv() # load all the variables from the env file
 class RagBot(discord.Bot):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.messages: pd.DataFrame = pd.DataFrame([{"user": "", "message": "", "timestamp": ""}])
+        self.messages: pd.DataFrame = pd.DataFrame([{"user": "", "message": "", "timestamp": "", "embedding": None}])
+        self.client = AzureOpenAI(
+            api_key=os.getenv('AZURE_OPENAI_API_KEY'),
+            base_url=os.getenv('AZURE_OPENAI_ENDPOINT'),
+            api_version=os.getenv('AZURE_OPENAI_API_VERSION')
+        )
+
+    def create_embeddings(self, text: str, model: str = "text-embedding-ada-002"):
+        # Create embeddings for each document chunk
+        embeddings = self.client.embeddings.create(input = text, model=model).data[0].embedding
+        return embeddings
 
     async def on_ready(self):
         print(f"{self.user} is ready and online!")
@@ -22,8 +33,19 @@ class RagBot(discord.Bot):
         if "seehistory" in message.content:
             print(self.messages)
             return
-        self.messages = pd.concat([self.messages, pd.DataFrame([{"user": message.author.name, "message": message.content, "timestamp": message.created_at}])], ignore_index=True)
+        if "embeddings" in message.content:
+            print(self.client)
+            return
+        self.messages = pd.concat([
+            self.messages, 
+            pd.DataFrame([
+                {"user": message.author.name, "message": message.content, "timestamp": message.created_at, "embedding": None}
+            ])], ignore_index=True)
     
+    @discord.slash_command(name="test", description="Say hello!")
+    async def test(self, ctx: discord.ApplicationContext):
+        await ctx.respond("Hello from RagBot!")
+
 
 bot = RagBot(intents=discord.Intents.all())
 
